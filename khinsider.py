@@ -175,7 +175,7 @@ def getAppropriateFile(song, formatOrder):
     return song.files[0]
 
 
-def friendlyDownloadFile(file, path, index, total, verbose=False):
+def friendlyDownloadFile(file, path, index, total, verbose=False, userAgent=None):
     numberStr = "{}/{}".format(
         str(index).zfill(len(str(total))),
         str(total)
@@ -200,7 +200,7 @@ def friendlyDownloadFile(file, path, index, total, verbose=False):
             if verbose and triesElapsed:
                 unicodePrint("Couldn't download {}. Trying again...".format(filename), file=sys.stderr)
             try:
-                file.download(path)
+                file.download(path, userAgent)
             except (requests.ConnectionError, requests.Timeout):
                 pass
             else:
@@ -295,7 +295,7 @@ class Soundtrack(object):
         images = [File(urljoin(self.url, url)) for url in urls]
         return images
 
-    def download(self, path='', makeDirs=True, formatOrder=None, verbose=False):
+    def download(self, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None):
         """Download the soundtrack to the directory specified by `path`!
         
         Create any directories that are missing if `makeDirs` is set to True.
@@ -329,7 +329,7 @@ class Soundtrack(object):
 
         success = True
         for fileNumber, file in enumerate(files, 1):
-            if not friendlyDownloadFile(file, path, fileNumber, totalFiles, verbose):
+            if not friendlyDownloadFile(file, path, fileNumber, totalFiles, verbose, userAgent):
                 success = False
         
         return success
@@ -394,26 +394,39 @@ class File(object):
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.url)
     
-    def download(self, path):
-        """Download the file to `path`."""
-        response = requests.get(self.url, timeout=10)
+    def download(self, path, userAgent):
+        """Download the file to `path`.
+
+        userAgent:  The user-agent string to use eg: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0"
+        """
+        headers = {**requests.utils.default_headers(),
+                   **{"User-Agent": userAgent}} if userAgent else requests.utils.default_headers()
+
+        response = requests.get(self.url, timeout=10, headers=headers)
         with open(path, 'wb') as outFile:
             outFile.write(response.content)
 
 
-def download(soundtrackId, path='', makeDirs=True, formatOrder=None, verbose=False):
+def download(soundtrackId, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None):
     """Download the soundtrack with the ID `soundtrackId`.
     See Soundtrack.download for more information.
     """
-    return Soundtrack(soundtrackId).download(path, makeDirs, formatOrder, verbose)
+    return Soundtrack(soundtrackId).download(path, makeDirs, formatOrder, verbose, userAgent)
 
 
 class SearchError(KhinsiderError):
     pass
 
-def search(term):
-    """Return a list of Soundtrack objects for the search term `term`."""
-    soup = getSoup(urljoin(BASE_URL, 'search'), params={'search': term})
+def search(term, userAgent=None):
+    """Return a list of Soundtrack objects for the search term `term`.
+
+    userAgent: string eg: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0"
+    """
+
+
+    headers = {**requests.utils.default_headers(),**{"User-Agent": userAgent}} if userAgent else requests.utils.default_headers()
+
+    soup = getSoup(urljoin(BASE_URL, 'search'), params={'search': term}, headers=headers)
     try:
         anchors = soup('p')[1]('a')
     except IndexError:
@@ -452,8 +465,10 @@ if __name__ == '__main__':
                                     "%(prog)s jumping-flash\n"
                                     "%(prog)s katamari-forever \"music{}Katamari Forever OST\"\n"
                                     "%(prog)s --search persona\n"
-                                    "%(prog)s --format flac mother-3".format(os.sep),
-                                    epilog="Hope you enjoy the script!",
+                                    "%(prog)s --format flac mother-3\n"
+                                    "%(prog)s --search --private \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0\" --format aac kirby".format(os.sep),
+                                    epilog="Options should be specified before the soundtrack name\n" # argparse.REMAINDER conflicts with intermixed parsing
+                                           "Hope you enjoy the script!",
                                     formatter_class=ProperHelpFormatter,
                                     add_help=False)
         
@@ -481,6 +496,13 @@ if __name__ == '__main__':
                             "(for example, \"flac,mp3\": download FLAC if available, otherwise MP3).")
         parser.add_argument('-s', '--search', action='store_true',
                             help="Always search, regardless of whether the specified soundtrack ID exists or not.")
+        parser.add_argument('--private', nargs='?', metavar="...", dest="userAgent",
+                            const="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0",
+                            help="Obscure request source by specifying a custom user agent\n\n"
+                                 "When this option is selected but no custom user-agent string specified, \n"
+                                 "defaults to: %(const)s\n"
+                                 "Else uses default python requests user-agent string\n"
+                                 "(eg python-requests/2.2.1 CPython/2.7.5 Darwin/13.1.0)")
 
         arguments = parser.parse_args()
 
@@ -514,10 +536,12 @@ if __name__ == '__main__':
             formatOrder = re.split(r',\s*', formatOrder)
             formatOrder = [extension.lstrip('.').lower() for extension in formatOrder]
 
+        userAgent = arguments.userAgent
+
         try:
             if onlySearch:
                 try:
-                    searchResults = search(searchTerm)
+                    searchResults = search(searchTerm, userAgent)
                 except SearchError as e:
                     print("Couldn't search. {}".format(e.args[0]), file=sys.stderr)
                 else:
@@ -530,13 +554,13 @@ if __name__ == '__main__':
                         print("No soundtracks found.")
             else:
                 try:
-                    success = download(soundtrack, outPath, formatOrder=formatOrder, verbose=True)
+                    success = download(soundtrack, outPath, formatOrder=formatOrder, verbose=True, userAgent=userAgent)
                     if not success:
                         print("\nNot all files could be downloaded.", file=sys.stderr)
                         return 1
                 except NonexistentSoundtrackError:
                     try:
-                        searchResults = search(searchTerm)
+                        searchResults = search(searchTerm, userAgent)
                     except SearchError:
                         searchResults = None
                     print("The soundtrack \"{}\" does not seem to exist.".format(soundtrack), file=sys.stderr)
