@@ -11,6 +11,8 @@ import os
 import re
 import sys
 from functools import wraps
+import random
+import time
 
 try:
     from urllib.parse import unquote, urljoin, urlsplit
@@ -175,7 +177,7 @@ def getAppropriateFile(song, formatOrder):
     return song.files[0]
 
 
-def friendlyDownloadFile(file, path, index, total, verbose=False, userAgent=None):
+def friendlyDownloadFile(file, path, index, total, verbose=False, userAgent=None, wait=None):
     numberStr = "{}/{}".format(
         str(index).zfill(len(str(total))),
         str(total)
@@ -200,7 +202,7 @@ def friendlyDownloadFile(file, path, index, total, verbose=False, userAgent=None
             if verbose and triesElapsed:
                 unicodePrint("Couldn't download {}. Trying again...".format(filename), file=sys.stderr)
             try:
-                file.download(path, userAgent)
+                file.download(path, userAgent, wait)
             except (requests.ConnectionError, requests.Timeout):
                 pass
             else:
@@ -295,7 +297,7 @@ class Soundtrack(object):
         images = [File(urljoin(self.url, url)) for url in urls]
         return images
 
-    def download(self, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None):
+    def download(self, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None, wait=None):
         """Download the soundtrack to the directory specified by `path`!
         
         Create any directories that are missing if `makeDirs` is set to True.
@@ -329,7 +331,7 @@ class Soundtrack(object):
 
         success = True
         for fileNumber, file in enumerate(files, 1):
-            if not friendlyDownloadFile(file, path, fileNumber, totalFiles, verbose, userAgent):
+            if not friendlyDownloadFile(file, path, fileNumber, totalFiles, verbose, userAgent, wait):
                 success = False
         
         return success
@@ -394,24 +396,26 @@ class File(object):
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.url)
     
-    def download(self, path, userAgent):
+    def download(self, path, userAgent, wait):
         """Download the file to `path`.
 
         userAgent:  The user-agent string to use eg: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0"
+        wait:       Time to wait before starting download in seconds
         """
         headers = {**requests.utils.default_headers(),
                    **{"User-Agent": userAgent}} if userAgent else requests.utils.default_headers()
+        time.sleep(random.random() * 1000 * wait) if wait is not None else None
 
         response = requests.get(self.url, timeout=10, headers=headers)
         with open(path, 'wb') as outFile:
             outFile.write(response.content)
 
 
-def download(soundtrackId, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None):
+def download(soundtrackId, path='', makeDirs=True, formatOrder=None, verbose=False, userAgent=None, wait=None):
     """Download the soundtrack with the ID `soundtrackId`.
     See Soundtrack.download for more information.
     """
-    return Soundtrack(soundtrackId).download(path, makeDirs, formatOrder, verbose, userAgent)
+    return Soundtrack(soundtrackId).download(path, makeDirs, formatOrder, verbose, userAgent, wait)
 
 
 class SearchError(KhinsiderError):
@@ -450,6 +454,7 @@ if __name__ == '__main__':
             print("You can also search for soundtracks by using your search term as parameter - as long as it's not an existing soundtrack.", file=sys.stderr)
             print(file=sys.stderr)
             print("For detailed help and more options, run \"{} --help\".".format(SCRIPT_NAME), file=sys.stderr)
+            print(message)
             sys.exit(1)
 
     # More tiny details!
@@ -466,8 +471,9 @@ if __name__ == '__main__':
                                     "%(prog)s katamari-forever \"music{}Katamari Forever OST\"\n"
                                     "%(prog)s --search persona\n"
                                     "%(prog)s --format flac mother-3\n"
-                                    "%(prog)s --search --private \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0\" --format aac kirby".format(os.sep),
-                                    epilog="Options should be specified before the soundtrack name\n" # argparse.REMAINDER conflicts with intermixed parsing
+                                    "%(prog)s --search --private \"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0\" --format aac kirby\n"
+                                    "%(prog)s kirby --search --private --format aac --wait".format(os.sep),
+                                    epilog="Options that can take a parameter should be specified after the required arguments (ie soundtrack & outPath), else options may be incorrectly set\n" # argparse.REMAINDER conflicts with intermixed parsing
                                            "Hope you enjoy the script!",
                                     formatter_class=ProperHelpFormatter,
                                     add_help=False)
@@ -486,7 +492,7 @@ if __name__ == '__main__':
         parser.add_argument('outPath', metavar='download directory', nargs='?',
                             help="The directory to download the soundtrack to.\n"
                             "Defaults to creating a new directory with the soundtrack ID as its name.")
-        parser.add_argument('trailingArguments', nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+        #parser.add_argument('trailingArguments', nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
         
         parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
                             help="Show this help and exit.")
@@ -503,8 +509,14 @@ if __name__ == '__main__':
                                  "defaults to: %(const)s\n"
                                  "Else uses default python requests user-agent string\n"
                                  "(eg python-requests/2.2.1 CPython/2.7.5 Darwin/13.1.0)")
+        parser.add_argument("--wait", nargs='?', type=int, choices=range(0,4), default=0, const=3,
+                            help="The maximum number of seconds to wait between requests\n"
+                                 "When this option is specified with no argument, defaults to %(const)s\n"
+                                 "Else, no wait between requests")
+        print((sys.argv))
 
-        arguments = parser.parse_args()
+        arguments, trailingArguments = parser.parse_known_args()
+        arguments.trailingArguments = trailingArguments
 
         try:
             soundtrack = arguments.soundtrack.decode(sys.getfilesystemencoding())
@@ -537,6 +549,7 @@ if __name__ == '__main__':
             formatOrder = [extension.lstrip('.').lower() for extension in formatOrder]
 
         userAgent = arguments.userAgent
+        wait = arguments.wait
 
         try:
             if onlySearch:
@@ -554,7 +567,7 @@ if __name__ == '__main__':
                         print("No soundtracks found.")
             else:
                 try:
-                    success = download(soundtrack, outPath, formatOrder=formatOrder, verbose=True, userAgent=userAgent)
+                    success = download(soundtrack, outPath, formatOrder=formatOrder, verbose=True, userAgent=userAgent, wait=wait)
                     if not success:
                         print("\nNot all files could be downloaded.", file=sys.stderr)
                         return 1
