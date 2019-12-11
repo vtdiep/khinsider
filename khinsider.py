@@ -404,7 +404,7 @@ class File(object):
         """
         headers = {**requests.utils.default_headers(),
                    **{"User-Agent": userAgent}} if userAgent else requests.utils.default_headers()
-        time.sleep(random.random() * 1000 * wait) if wait is not None else None
+        time.sleep(random.random() * 1 + wait) if wait is not None else None
 
         response = requests.get(self.url, timeout=10, headers=headers)
         with open(path, 'wb') as outFile:
