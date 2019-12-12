@@ -446,14 +446,18 @@ if __name__ == '__main__':
 
     SCRIPT_NAME = os.path.split(sys.argv[0])[-1]
 
+    # TODO:
+    # have correct error message show up when soundtrack specified but wait time is invalid
+    # example input "seiken-densetsu-legend-of-mana-arrangement-album-promise" --private --wait 8
+
     # Tiny details!
     class KindArgumentParser(argparse.ArgumentParser):
         def error(self, message):
-            print("No soundtrack specified! As the first parameter, use the name the soundtrack uses in its URL.", file=sys.stderr)
-            print("If you want to, you can also specify an output directory as the second parameter.", file=sys.stderr)
-            print("You can also search for soundtracks by using your search term as parameter - as long as it's not an existing soundtrack.", file=sys.stderr)
-            print(file=sys.stderr)
-            print("For detailed help and more options, run \"{} --help\".".format(SCRIPT_NAME), file=sys.stderr)
+            # print("No soundtrack specified! As the first parameter, use the name the soundtrack uses in its URL.", file=sys.stderr)
+            # print("If you want to, you can also specify an output directory as the second parameter.", file=sys.stderr)
+            # print("You can also search for soundtracks by using your search term as parameter - as long as it's not an existing soundtrack.", file=sys.stderr)
+            # print(file=sys.stderr)
+            # print("For detailed help and more options, run \"{} --help\".".format(SCRIPT_NAME), file=sys.stderr)
             print(message)
             sys.exit(1)
 
